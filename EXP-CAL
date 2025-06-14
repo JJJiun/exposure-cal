@@ -1,1 +1,195 @@
 
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Exposure Calculator – T-stop 기준</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+@media (max-width: 600px) {
+  body { padding: 12px; }
+  .row { flex-direction: column; gap: 16px; }
+  select, input, button { font-size: 18px; }
+  h2, h3 { font-size: 20px; }
+}
+body{background:#111;color:#eee;font-family:sans-serif;margin:0;padding:24px;max-width:950px}
+h2{margin-top:0}
+.row{display:flex;gap:32px;flex-wrap:wrap}
+.col{flex:1;min-width:310px}
+label{display:block;margin:10px 0 0}
+select,input{width:100%;padding:6px;margin-top:4px;background:#222;color:#fff;border:1px solid #444}
+.hidden{display:none}
+button{margin-top:18px;padding:10px 28px;font-size:16px;background:#333;color:#fff;border:1px solid #666;cursor:pointer}
+#result{margin-top:26px;font-size:17px;white-space:pre-line;color:#0f0}
+</style>
+</head>
+<body>
+<h2>노출 계산기 (T-stop 기반)</h2>
+
+<div class="row">
+  <div class="col">
+    <h3>이전 값</h3>
+    <label>ISO <select id="pISO"></select></label>
+    <label>ND (stop) <select id="pND"></select></label>
+    <label>FPS <select id="pFPS"><option value="direct">직접입력…</option></select><input id="pFPSd" type="number" inputmode="numeric" step="0.01" class="hidden"></label>
+    <label>셔터 앵글 (°) <select id="pAng"><option value="direct">직접입력…</option></select><input id="pAngd" type="number" inputmode="numeric" step="0.1" class="hidden"></label>
+    <label>T-stop <select id="pT"></select></label>
+  </div>
+
+  <div class="col">
+    <h3>새 값</h3>
+    <label>ISO <select id="nISO"><option value="X">X</option></select></label>
+    <label>ND (stop) <select id="nND"><option value="X">X</option></select></label>
+    <label>FPS <select id="nFPS"><option value="X">X</option><option value="direct">직접입력…</option></select><input id="nFPSd" type="number" inputmode="numeric" step="0.01" class="hidden"></label>
+    <label>셔터 앵글 (°) <select id="nAng"><option value="X">X</option><option value="direct">직접입력…</option></select><input id="nAngd" type="number" inputmode="numeric" step="0.1" class="hidden"></label>
+    <label>T-stop <select id="nT"><option value="X">X</option></select></label>
+  </div>
+</div>
+
+<button id="calc">계산</button>
+<div id="result"></div>
+
+<script>
+const isoList=[25,32,40,50,64,80,100,125,160,200,250,320,400,500,640,800,1000,1250,1600,2000,2500,3200,4000,5000,6400,8000,10000,12800,16000,20000,25600];
+const ndList=[...Array(13).keys()];
+const fpsList=[23.976,24,25,29.97,30,48,50,59.94,60,120,240];
+const angList=[45, 90, 180, 360];
+const tList=[1,1.1,1.3,1.4,1.6,1.8,2,2.2,2.5,2.8,3.2,3.5,4,4.5,5,5.6,6.3,7.1,8,9,10,11,13,14,16,18,20,22];
+
+const log2 = x => Math.log(x) / Math.log(2);
+const nearest = (v, list) => list.reduce((a,b) => Math.abs(b-v)<Math.abs(a-v)?b:a);
+
+function fill(sel, list){ list.forEach(v => sel.add(new Option(v, v))); }
+fill(pISO, isoList); fill(nISO, isoList);
+fill(pND, ndList); fill(nND, ndList);
+fpsList.forEach(v => pFPS.add(new Option(v, v))); fpsList.forEach(v => nFPS.add(new Option(v, v)));
+angList.forEach(v => pAng.add(new Option(v, v))); angList.forEach(v => nAng.add(new Option(v, v)));
+fill(pT, tList); fill(nT, tList);
+
+function setup(selID,inputID){
+  const s=document.getElementById(selID), i=document.getElementById(inputID);
+  
+s.addEventListener('change', () => {
+  if (s.value === 'direct') {
+    i.classList.remove('hidden');
+    i.focus();
+  } else {
+    i.classList.add('hidden');
+  }
+});
+
+}
+['p','n'].forEach(p=>{ setup(p+'FPS',p+'FPSd'); setup(p+'Ang',p+'Angd'); });
+
+function getVal(id,dir){
+  const v=document.getElementById(id).value;
+  if(v==='X') return 'X';
+  if(v==='direct') return parseFloat(document.getElementById(dir).value);
+  return parseFloat(v);
+}
+
+document.getElementById('calc').onclick=function(){
+  const p = {
+    ISO:+pISO.value,
+    ND:+pND.value,
+    FPS:getVal('pFPS','pFPSd'),
+    ANG:getVal('pAng','pAngd'),
+    T:+pT.value
+  };
+
+  const n = {
+    ISO:getVal('nISO','nISO'),
+    ND:getVal('nND','nND'),
+    FPS:getVal('nFPS','nFPSd'),
+    ANG:getVal('nAng','nAngd'),
+    T:getVal('nT','nT')
+  };
+
+  const xKeys = Object.entries(n).filter(([k,v]) => v==='X').map(([k]) => k);
+  if(xKeys.length !== 1) return result.textContent = "⚠ 새 값에서 정확히 한 항목만 X로 지정하세요.";
+  const X = xKeys[0];
+
+  let Δ = 0;
+  if(n.T !== 'X') Δ += 2 * log2(p.T / n.T);
+  if(n.ND !== 'X') Δ += p.ND - n.ND;
+  if(n.ISO !== 'X') Δ += log2(n.ISO / p.ISO);
+  if(!(X==='FPS'||X==='ANG')) Δ += log2((n.ANG * p.FPS) / (p.ANG * n.FPS));
+
+  let out = '';
+  if(X === 'ISO'){
+    const val = p.ISO * Math.pow(2, -Δ);
+    out = 'ISO ≈ ' + nearest(val, isoList);
+  }else if(X === 'ND'){
+    const val = p.ND - Δ;
+    if (val < 0) {
+      const extraStop = Math.abs(val);
+      const newISO = Math.round(p.ISO * Math.pow(2, extraStop));
+      out = `ND로는 커버 불가능 (필요 ND: ${val.toFixed(2)} stop)\n→ ISO를 약 ${newISO} 이상으로 올려야 합니다.`;
+    } else {
+      const ndValue = nearest(val, ndList);
+      out = 'ND ≈ ' + ndValue + ' stop';
+    }
+  }else if(X === 'T'){
+    const val = p.T * Math.pow(2, -Δ / 2);
+    out = 'T-stop ≈ f/' + nearest(val, tList);
+  }else if(X === 'FPS'){
+    const val = (n.ANG * p.FPS * Math.pow(2, Δ)) / p.ANG;
+    out = 'FPS ≈ ' + val.toFixed(2);
+  }else if(X === 'ANG'){
+    const val = (p.ANG * p.FPS * Math.pow(2, -Δ)) / n.FPS;
+    out = '셔터 앵글 ≈ ' + val.toFixed(1) + '°';
+  }
+
+  
+function formatStops(delta) {
+  const isPositive = delta >= 0;
+  delta = Math.abs(delta);
+  const nearestThird = Math.round(delta * 3) / 3;
+  const thirds = Math.round(nearestThird * 3);
+  const whole = Math.floor(thirds / 3);
+  const rem = thirds % 3;
+  let text = '';
+  if (rem === 0) text = `${whole} 스탑`;
+  else if (whole === 0) text = `${rem}/3 스탑`;
+  else text = `${whole}과 ${rem}/3 스탑`;
+  return text + (isPositive ? ' 밝아짐' : ' 어두워짐');
+}
+
+
+function formatStops(delta) {
+  const isPositive = delta >= 0;
+  delta = Math.abs(delta);
+  const nearestSixth = Math.round(delta * 6) / 6;
+  const sixths = Math.round(nearestSixth * 6);
+  const whole = Math.floor(sixths / 6);
+  const rem = sixths % 6;
+  let remStr = '';
+  if (rem === 1) remStr = '1/6';
+  else if (rem === 2) remStr = '1/3';
+  else if (rem === 3) remStr = '1/2';
+  else if (rem === 4) remStr = '2/3';
+  else if (rem === 5) remStr = '5/6';
+  let text = '';
+  if (rem === 0) text = `${whole} 스탑`;
+  else if (whole === 0) text = `${remStr} 스탑`;
+  else text = `${whole}과 ${remStr} 스탑`;
+  return text + (isPositive ? ' 밝아짐' : ' 어두워짐');
+}
+
+result.textContent = `계산 결과 →  ${out}
+총 변화량: ${formatStops(Δ)}`;
+
+
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('pISO').value = "800";
+  document.getElementById('pND').value = "0";
+  document.getElementById('pFPS').value = "24";
+  document.getElementById('pAng').value = "180";
+});
+
+</script>
+</body>
+</html>
+
